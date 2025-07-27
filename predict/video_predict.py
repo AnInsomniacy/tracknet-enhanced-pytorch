@@ -216,7 +216,7 @@ class SegmentedVideoProcessor:
 
 
 def main():
-    model_path = "../best_v2.pth"
+    model_path = "../best.pth"
     input_video = "../predict_data/test.mp4"
     output_video = "../predict_data/processed_video.mp4"
 
