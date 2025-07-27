@@ -3,20 +3,20 @@ TrackNet Testing Script - Evaluation Version
 
 Usage Examples:
 1. Basic testing:
-   python test.py --model best_model.pth --data dataset/test
+   python test.py --model best_model.pth --data dataset_test.h5
 
 2. Custom testing:
-   python test.py --model checkpoint.pth --data dataset/test --batch 8 --threshold 0.5 --device cuda
+   python test.py --model checkpoint.pth --data dataset_test.h5 --batch 8 --threshold 0.5 --device cuda
 
 3. Detailed evaluation:
-   python test.py --model best_model.pth --data dataset/test --threshold 0.3 --tolerance 4 --out test_results --report detailed
+   python test.py --model best_model.pth --data dataset_test.h5 --threshold 0.3 --tolerance 4 --out test_results --report detailed
 
 4. Quick validation:
-   python test.py --model model.pth --data dataset/val --batch 16 --report summary
+   python test.py --model model.pth --data dataset_val.h5 --batch 16 --report summary
 
 Parameter Functions:
 - model: Path to trained model checkpoint file (required)
-- data: Path to test dataset directory (required)
+- data: Path to test dataset HDF5 file (required)
 - batch: Number of samples per batch (default: 4)
 - threshold: Detection threshold for heatmap (default: 0.5)
 - tolerance: Distance tolerance in pixels (default: 4)
@@ -48,15 +48,13 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import seaborn as sns
 from preprocess.hdf5_dataset import HDF5FrameHeatmapDataset
-
-# Choose the version of TrackNet model you want to use
 from model.tracknet_enhanced import TrackNet
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="TrackNet Testing and Evaluation")
     parser.add_argument('--model', type=str, required=True, help='Path to trained model checkpoint')
-    parser.add_argument('--data', type=str, required=True, help='Path to test dataset directory')
+    parser.add_argument('--data', type=str, required=True, help='Path to test dataset HDF5 file')
     parser.add_argument('--batch', type=int, default=DEFAULT_BATCH_SIZE,
                         help=f'Batch size for testing (default: {DEFAULT_BATCH_SIZE})')
     parser.add_argument('--threshold', type=float, default=DETECTION_THRESHOLD,
@@ -159,7 +157,6 @@ class TrackNetTester:
 
         for b in range(batch_size):
             item_info = self.test_dataset.get_info(batch_start_idx + b)
-            base_frame_idx = item_info['idx']
             match_name = item_info['match']
             frame_name = item_info['frame']
 
@@ -170,8 +167,8 @@ class TrackNetTester:
                 pred_coord = self._extract_coordinates(pred_heatmap)
                 gt_coord = self._extract_ground_truth_coordinates(gt_heatmap)
 
-                frame_idx = base_frame_idx + f
-                frame_key = f"{match_name}_{frame_name}_{frame_idx}"
+                real_frame_idx = item_info['heatmap_keys'][f]
+                frame_key = f"{match_name}_{frame_name}_{real_frame_idx}"
 
                 if frame_key not in self.frame_predictions:
                     self.frame_predictions[frame_key] = []
@@ -405,7 +402,7 @@ def main():
         return
 
     if not Path(args.data).exists():
-        print(f"Error: Test data directory not found: {args.data}")
+        print(f"Error: Test data file not found: {args.data}")
         return
 
     tester = TrackNetTester(args)

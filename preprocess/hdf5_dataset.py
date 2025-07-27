@@ -24,7 +24,7 @@ Input Data Format:
 - Storage: HDF5 with JPEG compression
 
 Output Format:
-- inputs: (9, 288, 512) - 3 RGB images concatenated, normalized to [0,1]
+- inputs: (15, 288, 512) - 5 RGB images concatenated, normalized to [0,1]
 - heatmaps: (3, 288, 512) - 3 grayscale heatmaps concatenated, normalized to [0,1]
 """
 import cv2
@@ -79,19 +79,42 @@ class HDF5FrameHeatmapDataset(Dataset):
         input_keys = sorted([int(k) for k in input_frame_group.keys()])
         heatmap_keys = sorted([int(k) for k in heatmap_frame_group.keys()])
 
-        if len(input_keys) != len(heatmap_keys) or len(input_keys) < 3:
+        if len(input_keys) != len(heatmap_keys) or len(input_keys) < 1:
             return []
 
-        return [
-            {
+        total_frames = len(input_keys)
+        sequences = []
+
+        for center_idx in range(total_frames):
+            input_indices = []
+            for offset in [-2, -1, 0, 1, 2]:
+                target_idx = center_idx + offset
+                if target_idx < 0:
+                    input_indices.append(0)
+                elif target_idx >= total_frames:
+                    input_indices.append(total_frames - 1)
+                else:
+                    input_indices.append(target_idx)
+
+            heatmap_indices = []
+            for offset in [-1, 0, 1]:
+                target_idx = center_idx + offset
+                if target_idx < 0:
+                    heatmap_indices.append(0)
+                elif target_idx >= total_frames:
+                    heatmap_indices.append(total_frames - 1)
+                else:
+                    heatmap_indices.append(target_idx)
+
+            sequences.append({
                 'match': match_name,
                 'frame': frame_name,
-                'input_keys': input_keys[i:i + 3],
-                'heatmap_keys': heatmap_keys[i:i + 3],
-                'idx': i
-            }
-            for i in range(len(input_keys) - 2)
-        ]
+                'input_keys': [input_keys[i] for i in input_indices],
+                'heatmap_keys': [heatmap_keys[i] for i in heatmap_indices],
+                'idx': center_idx
+            })
+
+        return sequences
 
     def _load_image(self, match_name, frame_name, key, is_heatmap=False):
         try:
@@ -150,5 +173,7 @@ if __name__ == "__main__":
 
         if batch_idx == 0:
             info = dataset.get_info(0)
-            print(f"  Sample info: {info['match']}/{info['frame']}, start index {info['idx']}")
+            print(f"  Sample info: {info['match']}/{info['frame']}, center index {info['idx']}")
+            print(f"  Input keys: {info['input_keys']}")
+            print(f"  Heatmap keys: {info['heatmap_keys']}")
         break

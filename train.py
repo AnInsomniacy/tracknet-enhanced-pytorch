@@ -2,13 +2,13 @@
 TrackNet Training Script
 
 Usage Examples:
-python train.py --train train_data/train --val train_data/val
-python train.py --resume best.pth --train train_data/train --val train_data/val --optimizer Adam --epochs 100
-python train.py --train train_data/train --val train_data/val --batch 8 --epochs 50 --lr 0.001 --wd 0.0001 --optimizer Adam --scheduler ReduceLROnPlateau --factor 0.5 --patience 3 --min_lr 1e-6 --plot 5 --out outputs --name experiment
+python train.py --train train_data/train.h5 --val train_data/val.h5
+python train.py --resume best.pth --train train_data/train.h5 --val train_data/val.h5 --optimizer Adam --epochs 100
+python train.py --train train_data/train.h5 --val train_data/val.h5 --batch 8 --epochs 50 --lr 0.001 --wd 0.0001 --optimizer Adam --scheduler ReduceLROnPlateau --factor 0.5 --patience 3 --min_lr 1e-6 --plot 5 --out outputs --name experiment
 
 Parameters:
---train: Training dataset path (required)
---val: Validation dataset path (required)
+--train: Training dataset HDF5 file path (required)
+--val: Validation dataset HDF5 file path (required)
 --resume: Checkpoint path for resuming
 --batch: Batch size (default: 3)
 --epochs: Training epochs (default: 30)

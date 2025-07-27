@@ -72,30 +72,23 @@ class SegmentedVideoProcessor:
 
     def create_frame_groups(self, frames):
         groups = []
+        total_frames = len(frames)
 
-        for i in range(0, len(frames), 3):
-            if i == 0:
-                if len(frames) >= 3:
-                    input_frames = [frames[0], frames[0], frames[0], frames[1], frames[2]]
-                    output_indices = [0, 1, 2]
+        for start_output_idx in range(0, total_frames, 3):
+            end_output_idx = min(start_output_idx + 3, total_frames)
+            output_indices = list(range(start_output_idx, end_output_idx))
+
+            center_idx = start_output_idx + 1
+
+            input_frames = []
+            for offset in [-2, -1, 0, 1, 2]:
+                target_idx = center_idx + offset
+                if target_idx < 0:
+                    input_frames.append(frames[0])
+                elif target_idx >= total_frames:
+                    input_frames.append(frames[-1])
                 else:
-                    continue
-            elif i + 2 < len(frames):
-                start_idx = max(0, i - 2)
-                input_frames = frames[start_idx:start_idx + 5]
-                if len(input_frames) < 5:
-                    input_frames.extend([frames[-1]] * (5 - len(input_frames)))
-                output_indices = [i, i + 1, i + 2]
-            else:
-                remaining = len(frames) - i
-                if remaining > 0:
-                    start_idx = max(0, i - 2)
-                    input_frames = frames[start_idx:start_idx + 5]
-                    if len(input_frames) < 5:
-                        input_frames.extend([frames[-1]] * (5 - len(input_frames)))
-                    output_indices = list(range(i, min(i + 3, len(frames))))
-                else:
-                    break
+                    input_frames.append(frames[target_idx])
 
             groups.append((input_frames, output_indices))
 
@@ -216,7 +209,7 @@ class SegmentedVideoProcessor:
 
 
 def main():
-    model_path = "../best.pth"
+    model_path = "../best_model.pth"
     input_video = "../predict_data/test.mp4"
     output_video = "../predict_data/processed_video.mp4"
 
