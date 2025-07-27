@@ -96,8 +96,11 @@ class HDF5SequencePlayer:
                 input_key = str(input_keys[i])
                 heatmap_key = str(heatmap_keys[i])
 
-                input_data = input_group[input_key][:]
-                heatmap_data = heatmap_group[heatmap_key][:]
+                input_jpg_data = input_group[input_key][:]
+                heatmap_jpg_data = heatmap_group[heatmap_key][:]
+
+                input_data = cv2.imdecode(input_jpg_data, cv2.IMREAD_COLOR)
+                heatmap_data = cv2.imdecode(heatmap_jpg_data, cv2.IMREAD_GRAYSCALE)
 
                 input_images.append(input_data)
                 heatmap_images.append(heatmap_data)
@@ -302,11 +305,11 @@ Required HDF5 Structure:
     dataset.h5
     ├── match1/
     │   ├── inputs/
-    │   │   ├── sequence1/[0,1,2...] (512×288×3 arrays)
-    │   │   └── sequence2/[0,1,2...] (512×288×3 arrays)
+    │   │   ├── sequence1/[0,1,2...] (uint8 arrays with JPEG data)
+    │   │   └── sequence2/[0,1,2...] (uint8 arrays with JPEG data)
     │   └── heatmaps/
-    │       ├── sequence1/[0,1,2...] (288×512 arrays)
-    │       └── sequence2/[0,1,2...] (288×512 arrays)
+    │       ├── sequence1/[0,1,2...] (uint8 arrays with JPEG data)
+    │       └── sequence2/[0,1,2...] (uint8 arrays with JPEG data)
     └── match2/...
         """
     )

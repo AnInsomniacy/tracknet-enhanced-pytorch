@@ -14,20 +14,20 @@ h5_file_path: Path to HDF5 dataset file (required)
 Dataset Structure:
 dataset_preprocessed.h5
 ├── match1/
-│   ├── inputs/frame1/[0,1,2,3...] (512×288×3 arrays)
-│   └── heatmaps/frame1/[0,1,2,3...] (288×512 arrays)
+│   ├── inputs/frame1/[0,1,2,3...] (uint8 arrays with JPEG data)
+│   └── heatmaps/frame1/[0,1,2,3...] (uint8 arrays with JPEG data)
 └── match2/...
 
 Input Data Format:
-- Input frames: uint8 arrays (512×288×3) - RGB images, values 0-255
-- Heatmap frames: uint8 arrays (288×512) - Grayscale heatmaps, values 0-255
-- Storage: HDF5 with gzip compression
+- Input frames: uint8 arrays containing JPEG binary data
+- Heatmap frames: uint8 arrays containing JPEG binary data
+- Storage: HDF5 with JPEG compression
 
 Output Format:
 - inputs: (9, 288, 512) - 3 RGB images concatenated, normalized to [0,1]
 - heatmaps: (3, 288, 512) - 3 grayscale heatmaps concatenated, normalized to [0,1]
 """
-
+import cv2
 import h5py
 import torch
 import numpy as np
@@ -97,10 +97,12 @@ class HDF5FrameHeatmapDataset(Dataset):
         try:
             with h5py.File(self.h5_file_path, 'r') as h5_file:
                 if is_heatmap:
-                    data = h5_file[f"{match_name}/heatmaps/{frame_name}/{key}"][:]
+                    jpg_data = h5_file[f"{match_name}/heatmaps/{frame_name}/{key}"][:]
+                    data = cv2.imdecode(jpg_data, cv2.IMREAD_GRAYSCALE)
                     tensor = torch.from_numpy(data.astype(np.float32) / 255.0).unsqueeze(0)
                 else:
-                    data = h5_file[f"{match_name}/inputs/{frame_name}/{key}"][:]
+                    jpg_data = h5_file[f"{match_name}/inputs/{frame_name}/{key}"][:]
+                    data = cv2.imdecode(jpg_data, cv2.IMREAD_COLOR)
                     tensor = torch.from_numpy(data.astype(np.float32) / 255.0).permute(2, 0, 1)
                 return tensor
         except Exception as e:

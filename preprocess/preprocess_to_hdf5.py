@@ -207,8 +207,11 @@ def process_video_sequence(video_path, annotation_path, h5_file, match_name, seq
                 else:
                     heatmap = np.zeros((TARGET_HEIGHT, TARGET_WIDTH), dtype=np.uint8)
 
-                input_group.create_dataset(str(current_frame), data=processed_frame, compression='gzip')
-                heatmap_group.create_dataset(str(current_frame), data=heatmap, compression='gzip')
+                _, input_jpg = cv2.imencode('.jpg', processed_frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                _, heatmap_jpg = cv2.imencode('.jpg', heatmap)
+
+                input_group.create_dataset(str(current_frame), data=input_jpg)
+                heatmap_group.create_dataset(str(current_frame), data=heatmap_jpg)
 
                 frames_processed += 1
 
@@ -340,15 +343,14 @@ Input Structure:
 Output Structure:
     dataset_preprocessed.h5
     ├── match1/
-    │   ├── inputs/rally1/[0,1,2,3...] (512×288×3 arrays)
-    │   └── heatmaps/rally1/[0,1,2,3...] (288×512 arrays)
+    │   ├── inputs/rally1/[0,1,2,3...] (uint8 arrays with JPEG data)
+    │   └── heatmaps/rally1/[0,1,2,3...] (uint8 arrays with JPEG data)
     └── match2/...
 
 Output Data Format:
-- Input frames: uint8 arrays (512×288×3) - RGB images, values 0-255
-- Heatmap frames: uint8 arrays (288×512) - Grayscale heatmaps, values 0-255
-- Compression: gzip for space efficiency
-- Storage: HDF5 hierarchical structure
+- Input frames: uint8 arrays containing JPEG binary data
+- Heatmap frames: uint8 arrays containing JPEG binary data  
+- Storage: HDF5 hierarchical structure with JPEG compression
 
 Annotation Format (rally1_ball.csv):
     Frame,Visibility,X,Y
