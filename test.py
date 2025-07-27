@@ -47,7 +47,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import seaborn as sns
-from preprocessing.tracknet_dataset import FrameHeatmapDataset
+from preprocess.hdf5_dataset import HDF5FrameHeatmapDataset
 
 # Choose the version of TrackNet model you want to use
 from model.tracknet_enhanced import TrackNet
@@ -113,7 +113,7 @@ class TrackNetTester:
 
     def _setup_data(self):
         print("Loading dataset...")
-        self.test_dataset = FrameHeatmapDataset(self.args.data)
+        self.test_dataset = HDF5FrameHeatmapDataset(self.args.data)
         self.test_loader = DataLoader(
             self.test_dataset, batch_size=self.args.batch, shuffle=False,
             num_workers=0, pin_memory=self.device.type == 'cuda'

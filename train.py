@@ -38,7 +38,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from model.loss import WeightedBinaryCrossEntropy
-from preprocessing.tracknet_dataset import FrameHeatmapDataset
+from preprocess.hdf5_dataset import HDF5FrameHeatmapDataset
 from model.tracknet_enhanced import TrackNet
 
 
@@ -205,8 +205,8 @@ class Trainer:
                     f"Status: Resume epoch \033[93m{self.start_epoch + 1}\033[0m (\033[91mWeights Only\033[0m - Optimizer Changed: \033[93m{checkpoint_optimizer}\033[0m→\033[93m{self.args.optimizer}\033[0m)\n")
 
     def setup_data(self):
-        train_dataset = FrameHeatmapDataset(self.args.train)
-        val_dataset = FrameHeatmapDataset(self.args.val)
+        train_dataset = HDF5FrameHeatmapDataset(self.args.train)
+        val_dataset = HDF5FrameHeatmapDataset(self.args.val)
 
         self.train_loader = DataLoader(train_dataset, batch_size=self.args.batch, shuffle=True,
                                        num_workers=self.args.workers, pin_memory=self.device.type == 'cuda')
