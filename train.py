@@ -2,8 +2,8 @@
 TrackNet Training Script
 
 Usage Examples:
-python train.py --train dataset/train --val dataset/val
-python train.py --resume best.pth --train dataset/train --val dataset/val --optimizer Adam --epochs 100
+python train.py --train train_data/train --val train_data/val
+python train.py --resume best.pth --train train_data/train --val train_data/val --optimizer Adam --epochs 100
 python train.py --train train_data/train --val train_data/val --batch 8 --epochs 50 --lr 0.001 --wd 0.0001 --optimizer Adam --scheduler ReduceLROnPlateau --factor 0.5 --patience 3 --min_lr 1e-6 --plot 5 --out outputs --name experiment
 
 Parameters:
@@ -100,7 +100,6 @@ class Trainer:
         return torch.device(self.args.device)
 
     def _setup_dirs(self):
-        print("Setting up output directories...")
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         suffix = "_resumed" if self.args.resume else ""
         self.save_dir = Path(self.args.out) / f"{self.args.name}{suffix}_{timestamp}"
@@ -109,13 +108,11 @@ class Trainer:
         (self.save_dir / "plots").mkdir(exist_ok=True)
         with open(self.save_dir / "config.json", 'w') as f:
             json.dump(vars(self.args), f, indent=2)
-        print(f"Output directory created: {self.save_dir}")
 
     def _load_checkpoint(self):
         if not self.args.resume:
             return
 
-        print("Loading checkpoint...")
         path = Path(self.args.resume)
         if not path.exists():
             raise FileNotFoundError(f"Checkpoint not found: {path}")
@@ -126,12 +123,8 @@ class Trainer:
         checkpoint_optimizer = self.checkpoint.get('optimizer_type', 'Unknown')
         if checkpoint_optimizer == self.args.optimizer:
             self.recovery_mode = 'strict'
-            print(f"Strict recovery mode: {checkpoint_optimizer} optimizer")
         else:
             self.recovery_mode = 'weights_only'
-            print(f"Weight inheritance mode: {checkpoint_optimizer} -> {self.args.optimizer}")
-
-        print(f"Checkpoint loaded, resuming from epoch \033[93m{self.start_epoch + 1}\033[0m")
 
     def _interrupt(self, signum, frame):
         print("\n\033[91mInterrupt detected\033[0m, saving emergency checkpoint...")
@@ -172,20 +165,53 @@ class Trainer:
         else:
             return self.optimizer.param_groups[0]['lr']
 
+    def _display_init_info(self):
+        print("\nTrackNet Training Initialized")
+
+        device_name = self.device.type.upper()
+        if self.device.type == 'cuda':
+            device_info = torch.cuda.get_device_name(0)
+            memory_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
+            print(f"Device: \033[93m{device_name}\033[0m ({device_info}, \033[94m{memory_gb:.0f}GB\033[0m)")
+        else:
+            print(f"Device: \033[93m{device_name}\033[0m")
+
+        total_params = sum(p.numel() for p in self.model.parameters())
+        params_str = f"{total_params / 1e6:.1f}M" if total_params >= 1e6 else f"{total_params / 1e3:.1f}K"
+        print(f"Model: TrackNet (\033[94m{params_str}\033[0m params)")
+
+        print(
+            f"Optimizer: \033[93m{self.args.optimizer}\033[0m (lr=\033[94m{self.args.lr}\033[0m, wd=\033[94m{self.args.wd}\033[0m)")
+
+        train_size = len(self.train_loader.dataset)
+        val_size = len(self.val_loader.dataset)
+        print(f"Data: Train \033[94m{train_size:,}\033[0m | Val \033[94m{val_size:,}\033[0m samples")
+
+        remaining_epochs = self.args.epochs - self.start_epoch
+        total_steps = remaining_epochs * len(self.train_loader)
+        print(
+            f"Training: \033[94m{self.args.epochs}\033[0m epochs × \033[94m{len(self.train_loader)}\033[0m batches → \033[94m{total_steps:,}\033[0m steps")
+
+        print(f"Output: {self.save_dir}")
+
+        if not self.args.resume:
+            print(f"Status: \033[92mNew Training\033[0m\n")
+        else:
+            if self.recovery_mode == 'strict':
+                print(f"Status: Resume epoch \033[93m{self.start_epoch + 1}\033[0m (\033[92mFull Recovery\033[0m)\n")
+            else:
+                checkpoint_optimizer = self.checkpoint.get('optimizer_type', 'Unknown')
+                print(
+                    f"Status: Resume epoch \033[93m{self.start_epoch + 1}\033[0m (\033[91mWeights Only\033[0m - Optimizer Changed: \033[93m{checkpoint_optimizer}\033[0m→\033[93m{self.args.optimizer}\033[0m)\n")
+
     def setup_data(self):
-        print("Loading datasets...")
         train_dataset = FrameHeatmapDataset(self.args.train)
         val_dataset = FrameHeatmapDataset(self.args.val)
-        print(f"Training dataset: \033[94m{len(train_dataset)}\033[0m samples")
-        print(f"Validation dataset: \033[94m{len(val_dataset)}\033[0m samples")
 
-        print("Creating data loaders...")
         self.train_loader = DataLoader(train_dataset, batch_size=self.args.batch, shuffle=True,
                                        num_workers=self.args.workers, pin_memory=self.device.type == 'cuda')
         self.val_loader = DataLoader(val_dataset, batch_size=self.args.batch, shuffle=False,
                                      num_workers=self.args.workers, pin_memory=self.device.type == 'cuda')
-        print(
-            f"Data loaders ready - Train: \033[94m{len(train_dataset)}\033[0m | Val: \033[94m{len(val_dataset)}\033[0m")
 
     def _create_optimizer(self):
         optimizers = {
@@ -199,7 +225,6 @@ class Trainer:
         return optimizers[self.args.optimizer]()
 
     def setup_model(self):
-        print("Initializing model...")
         self.model = TrackNet().to(self.device)
         self.criterion = WeightedBinaryCrossEntropy()
         self.optimizer = self._create_optimizer()
@@ -211,38 +236,19 @@ class Trainer:
             self.scheduler = None
 
         if self.checkpoint:
-            print("Loading model state from checkpoint...")
             self.model.load_state_dict(self.checkpoint['model_state_dict'])
 
             if self.recovery_mode == 'strict':
-                print("Restoring optimizer state...")
                 if 'optimizer_state_dict' in self.checkpoint:
                     self.optimizer.load_state_dict(self.checkpoint['optimizer_state_dict'])
 
                 if self.scheduler and 'scheduler_state_dict' in self.checkpoint:
-                    print("Restoring scheduler state...")
                     self.scheduler.load_state_dict(self.checkpoint['scheduler_state_dict'])
-
-                if 'history' in self.checkpoint:
-                    print("Restoring training history...")
-                    self.losses = self.checkpoint['history']
-
-                if 'step' in self.checkpoint:
-                    self.step = self.checkpoint['step']
 
                 if 'best_loss' in self.checkpoint:
                     self.best_loss = self.checkpoint['best_loss']
 
-                print("Model state loaded successfully (\033[92mstrict recovery\033[0m)")
-            else:
-                print(
-                    "\033[91mOptimizer incompatible\033[0m - Model state loaded successfully (\033[93mweights only\033[0m)")
-
-        print(
-            f"Model ready - Optimizer: \033[93m{self.args.optimizer}\033[0m | LR: \033[93m{self.args.lr}\033[0m | WD: \033[93m{self.args.wd}\033[0m")
-
     def save_checkpoint(self, epoch, train_loss, val_loss, is_emergency=False):
-        print("Saving checkpoint...")
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         checkpoint = {
             'epoch': epoch,
@@ -277,7 +283,6 @@ class Trainer:
         return filepath, False
 
     def plot_curves(self, epoch):
-        print("Generating training plots...")
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 
         if self.losses['batch']:
@@ -304,10 +309,8 @@ class Trainer:
         plt.tight_layout()
         plt.savefig(self.save_dir / "plots" / f"epoch_{epoch + 1}.png", dpi=150, bbox_inches='tight')
         plt.close()
-        print(f"Training plots saved for epoch \033[93m{epoch + 1}\033[0m")
 
     def validate(self):
-        print("Starting validation...")
         self.model.eval()
         total_loss = 0.0
         with torch.no_grad():
@@ -326,18 +329,17 @@ class Trainer:
             val_pbar.close()
 
         avg_loss = total_loss / len(self.val_loader)
-        print(f"Validation completed - Average loss: \033[94m{avg_loss:.6f}\033[0m")
         return avg_loss
 
     def train(self):
-        print(f"Starting training on \033[93m{self.device}\033[0m")
         self.setup_data()
         self.setup_model()
+        self._display_init_info()
 
         for epoch in range(self.start_epoch, self.args.epochs):
             if self.interrupted: break
 
-            print(f"\nEpoch \033[95m{epoch + 1}\033[0m/\033[95m{self.args.epochs}\033[0m")
+            print(f"Epoch \033[95m{epoch + 1}\033[0m/\033[95m{self.args.epochs}\033[0m")
             start_time = time.time()
             self.model.train()
             total_loss = 0.0
@@ -388,7 +390,6 @@ class Trainer:
                 f"LR: \033[94m{current_lr:.6e}\033[0m Time: \033[94m{elapsed:.1f}s\033[0m")
 
             if self.scheduler:
-                print("Updating learning rate scheduler...")
                 self.scheduler.step(val_loss)
 
             _, is_best = self.save_checkpoint(epoch, train_loss, val_loss)
