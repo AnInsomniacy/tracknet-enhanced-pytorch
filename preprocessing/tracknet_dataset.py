@@ -11,8 +11,12 @@ dataset_reorg_train/
 └── match2/...
 
 Output Format:
-- inputs: (9, 288, 512) - 3 RGB images concatenated, normalized to [0,1]
+- inputs: (15, 288, 512) - 5 RGB images concatenated, normalized to [0,1]
 - heatmaps: (3, 288, 512) - 3 grayscale heatmaps concatenated, normalized to [0,1]
+
+Time Window:
+- Input: 5 consecutive frames (t-2, t-1, t, t+1, t+2)
+- Output: 3 center heatmaps (t-1, t, t+1)
 
 Author: Generated for TrackNet training
 """
@@ -82,19 +86,19 @@ class FrameHeatmapDataset(Dataset):
         input_files = self._get_sorted_images(input_dir)
         heatmap_files = self._get_sorted_images(heatmap_dir)
 
-        if len(input_files) != len(heatmap_files) or len(input_files) < 3:
+        if len(input_files) != len(heatmap_files) or len(input_files) < 5:
             return []
 
-        # Generate 3-frame sequences
+        # Generate 5-frame input sequences with 3-frame output
         return [
             {
-                'inputs': input_files[i:i + 3],
-                'heatmaps': heatmap_files[i:i + 3],
+                'inputs': input_files[i:i + 5],
+                'heatmaps': heatmap_files[i + 1:i + 4],  # Center 3 frames
                 'match': match_dir.name,
                 'frame': frame_name,
                 'idx': i
             }
-            for i in range(len(input_files) - 2)
+            for i in range(len(input_files) - 4)
         ]
 
     def _get_sorted_images(self, directory):
@@ -123,7 +127,7 @@ class FrameHeatmapDataset(Dataset):
     def __getitem__(self, idx):
         """
         Returns:
-            inputs: (9, 288, 512) - 3 RGB images, [0,1]
+            inputs: (15, 288, 512) - 5 RGB images, [0,1]
             heatmaps: (3, 288, 512) - 3 grayscale heatmaps, [0,1]
         """
         item = self.data_items[idx]

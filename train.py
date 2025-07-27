@@ -2,19 +2,14 @@
 TrackNet Training Script
 
 Usage Examples:
-python train.py --data dataset/train
-python train.py --data dataset/train --batch 8 --epochs 50 --lr 0.001
-python train.py --data dataset/train --optimizer Adam --lr 0.001 --batch 16 --plot 10
-python train.py --resume best.pth --data dataset/train --lr 0.0001
-python train.py --resume checkpoint.pth --data dataset/train --optimizer Adam --epochs 100
-python train.py --data training_data/train --batch 3 --lr 1  --optimizer Adadelta
-
+python train.py --train dataset/train --val dataset/val
+python train.py --resume best.pth --train dataset/train --val dataset/val --optimizer Adam --epochs 100
+python train.py --train train_data/train --val train_data/val --batch 8 --epochs 50 --lr 0.001 --wd 0.0001 --optimizer Adam --scheduler ReduceLROnPlateau --factor 0.5 --patience 3 --min_lr 1e-6 --plot 5 --out outputs --name experiment
 
 Parameters:
---data: Training dataset path (required)
+--train: Training dataset path (required)
+--val: Validation dataset path (required)
 --resume: Checkpoint path for resuming
---split: Train/val split ratio (default: 0.8)
---seed: Random seed (default: 26)
 --batch: Batch size (default: 3)
 --epochs: Training epochs (default: 30)
 --workers: Data loader workers (default: 0)
@@ -40,21 +35,18 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import torch
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 from model.loss import WeightedBinaryCrossEntropy
 from preprocessing.tracknet_dataset import FrameHeatmapDataset
-
-# Choose the version of TrackNet model you want to use
-from model.tracknet_v4 import TrackNet
+from model.tracknet_enhanced import TrackNet
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="TrackNet Training")
-    parser.add_argument('--data', type=str, required=True)
+    parser.add_argument('--train', type=str, required=True)
+    parser.add_argument('--val', type=str, required=True)
     parser.add_argument('--resume', type=str)
-    parser.add_argument('--split', type=float, default=0.8)
-    parser.add_argument('--seed', type=int, default=26)
     parser.add_argument('--batch', type=int, default=3)
     parser.add_argument('--epochs', type=int, default=30)
     parser.add_argument('--workers', type=int, default=0)
@@ -89,6 +81,8 @@ class Trainer:
         self.best_loss = float('inf')
         self.device = self._get_device()
         self._setup_dirs()
+        self.checkpoint = None
+        self.recovery_mode = None
         self._load_checkpoint()
         self.losses = {'batch': [], 'steps': [], 'lrs': [], 'train': [], 'val': []}
         self.step = 0
@@ -118,12 +112,25 @@ class Trainer:
         print(f"Output directory created: {self.save_dir}")
 
     def _load_checkpoint(self):
-        if not self.args.resume: return
+        if not self.args.resume:
+            return
+
         print("Loading checkpoint...")
         path = Path(self.args.resume)
-        if not path.exists(): raise FileNotFoundError(f"Checkpoint not found: {path}")
+        if not path.exists():
+            raise FileNotFoundError(f"Checkpoint not found: {path}")
+
         self.checkpoint = torch.load(path, map_location='cpu')
         self.start_epoch = self.checkpoint['epoch'] + (0 if self.checkpoint.get('is_emergency', False) else 1)
+
+        checkpoint_optimizer = self.checkpoint.get('optimizer_type', 'Unknown')
+        if checkpoint_optimizer == self.args.optimizer:
+            self.recovery_mode = 'strict'
+            print(f"Strict recovery mode: {checkpoint_optimizer} optimizer")
+        else:
+            self.recovery_mode = 'weights_only'
+            print(f"Weight inheritance mode: {checkpoint_optimizer} -> {self.args.optimizer}")
+
         print(f"Checkpoint loaded, resuming from epoch \033[93m{self.start_epoch + 1}\033[0m")
 
     def _interrupt(self, signum, frame):
@@ -166,21 +173,19 @@ class Trainer:
             return self.optimizer.param_groups[0]['lr']
 
     def setup_data(self):
-        print("Loading dataset...")
-        dataset = FrameHeatmapDataset(self.args.data)
-        print(f"Dataset loaded: \033[94m{len(dataset)}\033[0m samples")
-
-        print("Splitting dataset...")
-        torch.manual_seed(self.args.seed)
-        train_size = int(self.args.split * len(dataset))
-        train_ds, val_ds = random_split(dataset, [train_size, len(dataset) - train_size])
+        print("Loading datasets...")
+        train_dataset = FrameHeatmapDataset(self.args.train)
+        val_dataset = FrameHeatmapDataset(self.args.val)
+        print(f"Training dataset: \033[94m{len(train_dataset)}\033[0m samples")
+        print(f"Validation dataset: \033[94m{len(val_dataset)}\033[0m samples")
 
         print("Creating data loaders...")
-        self.train_loader = DataLoader(train_ds, batch_size=self.args.batch, shuffle=True,
+        self.train_loader = DataLoader(train_dataset, batch_size=self.args.batch, shuffle=True,
                                        num_workers=self.args.workers, pin_memory=self.device.type == 'cuda')
-        self.val_loader = DataLoader(val_ds, batch_size=self.args.batch, shuffle=False,
+        self.val_loader = DataLoader(val_dataset, batch_size=self.args.batch, shuffle=False,
                                      num_workers=self.args.workers, pin_memory=self.device.type == 'cuda')
-        print(f"Data loaders ready - Train: \033[94m{len(train_ds)}\033[0m | Val: \033[94m{len(val_ds)}\033[0m")
+        print(
+            f"Data loaders ready - Train: \033[94m{len(train_dataset)}\033[0m | Val: \033[94m{len(val_dataset)}\033[0m")
 
     def _create_optimizer(self):
         optimizers = {
@@ -205,10 +210,33 @@ class Trainer:
         else:
             self.scheduler = None
 
-        if hasattr(self, 'checkpoint'):
+        if self.checkpoint:
             print("Loading model state from checkpoint...")
             self.model.load_state_dict(self.checkpoint['model_state_dict'])
-            print("Model state loaded successfully")
+
+            if self.recovery_mode == 'strict':
+                print("Restoring optimizer state...")
+                if 'optimizer_state_dict' in self.checkpoint:
+                    self.optimizer.load_state_dict(self.checkpoint['optimizer_state_dict'])
+
+                if self.scheduler and 'scheduler_state_dict' in self.checkpoint:
+                    print("Restoring scheduler state...")
+                    self.scheduler.load_state_dict(self.checkpoint['scheduler_state_dict'])
+
+                if 'history' in self.checkpoint:
+                    print("Restoring training history...")
+                    self.losses = self.checkpoint['history']
+
+                if 'step' in self.checkpoint:
+                    self.step = self.checkpoint['step']
+
+                if 'best_loss' in self.checkpoint:
+                    self.best_loss = self.checkpoint['best_loss']
+
+                print("Model state loaded successfully (\033[92mstrict recovery\033[0m)")
+            else:
+                print(
+                    "\033[91mOptimizer incompatible\033[0m - Model state loaded successfully (\033[93mweights only\033[0m)")
 
         print(
             f"Model ready - Optimizer: \033[93m{self.args.optimizer}\033[0m | LR: \033[93m{self.args.lr}\033[0m | WD: \033[93m{self.args.wd}\033[0m")
@@ -219,14 +247,20 @@ class Trainer:
         checkpoint = {
             'epoch': epoch,
             'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'optimizer_type': self.args.optimizer,
             'train_loss': train_loss,
             'val_loss': val_loss,
             'learning_rate': self.optimizer.param_groups[0]['lr'],
             'is_emergency': is_emergency,
             'history': self.losses.copy(),
             'step': self.step,
+            'best_loss': self.best_loss,
             'timestamp': timestamp
         }
+
+        if self.scheduler:
+            checkpoint['scheduler_state_dict'] = self.scheduler.state_dict()
 
         prefix = "emergency_" if is_emergency else "checkpoint_"
         filename = f"{prefix}epoch_{epoch + 1}_{timestamp}.pth"

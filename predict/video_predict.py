@@ -6,7 +6,7 @@ import cv2
 import torch
 import os
 from tqdm import tqdm
-from model.tracknet_v4 import TrackNet
+from model.tracknet_enhanced import TrackNet
 
 
 class TrackNetPredictor:
@@ -45,10 +45,7 @@ class SegmentedVideoProcessor:
     def __init__(self, model_path, dot_size=3, frames_per_segment=150, threshold=0.5):
         self.predictor = TrackNetPredictor(model_path, threshold)
         self.dot_size = dot_size
-        self.frames_per_segment = self._adjust_segment_size(frames_per_segment)
-
-    def _adjust_segment_size(self, frames):
-        return frames - (frames % 3) if frames % 3 != 0 else frames
+        self.frames_per_segment = frames_per_segment
 
     def extract_video_info(self, video_path):
         cap = cv2.VideoCapture(video_path)
@@ -73,11 +70,35 @@ class SegmentedVideoProcessor:
         cap.release()
         return frames
 
-    def group_frames(self, frames):
+    def create_frame_groups(self, frames):
         groups = []
-        for i in range(0, len(frames) - 2, 3):
-            if i + 3 <= len(frames):
-                groups.append(frames[i:i + 3])
+
+        for i in range(0, len(frames), 3):
+            if i == 0:
+                if len(frames) >= 3:
+                    input_frames = [frames[0], frames[0], frames[0], frames[1], frames[2]]
+                    output_indices = [0, 1, 2]
+                else:
+                    continue
+            elif i + 2 < len(frames):
+                start_idx = max(0, i - 2)
+                input_frames = frames[start_idx:start_idx + 5]
+                if len(input_frames) < 5:
+                    input_frames.extend([frames[-1]] * (5 - len(input_frames)))
+                output_indices = [i, i + 1, i + 2]
+            else:
+                remaining = len(frames) - i
+                if remaining > 0:
+                    start_idx = max(0, i - 2)
+                    input_frames = frames[start_idx:start_idx + 5]
+                    if len(input_frames) < 5:
+                        input_frames.extend([frames[-1]] * (5 - len(input_frames)))
+                    output_indices = list(range(i, min(i + 3, len(frames))))
+                else:
+                    break
+
+            groups.append((input_frames, output_indices))
+
         return groups
 
     def scale_coordinates(self, coords, original_size):
@@ -94,27 +115,26 @@ class SegmentedVideoProcessor:
         return frame
 
     def process_segment(self, frames, original_size, segment_idx):
-        frame_groups = self.group_frames(frames)
-        processed_frames = []
+        frame_groups = self.create_frame_groups(frames)
+        processed_frames = [frame.copy() for frame in frames]
         ball_detected_count = 0
 
         with tqdm(total=len(frame_groups), desc=f"Segment {segment_idx + 1}", unit="groups") as pbar:
-            for group in frame_groups:
-                heatmaps = self.predictor.predict(group)
+            for input_frames, output_indices in frame_groups:
+                heatmaps = self.predictor.predict(input_frames)
 
-                for frame, heatmap in zip(group, heatmaps):
-                    ball_pos_model = self.predictor.detect_ball(heatmap)
-                    ball_pos_original = self.scale_coordinates(ball_pos_model, original_size)
-                    processed_frame = self.draw_ball(frame.copy(), ball_pos_original)
-                    processed_frames.append(processed_frame)
+                for i, frame_idx in enumerate(output_indices):
+                    if i < len(heatmaps) and frame_idx < len(processed_frames):
+                        ball_pos_model = self.predictor.detect_ball(heatmaps[i])
+                        ball_pos_original = self.scale_coordinates(ball_pos_model, original_size)
+                        processed_frames[frame_idx] = self.draw_ball(processed_frames[frame_idx], ball_pos_original)
 
-                    if ball_pos_original:
-                        ball_detected_count += 1
+                        if ball_pos_original:
+                            ball_detected_count += 1
 
                 pbar.update(1)
 
         print(f"Ball detected in {ball_detected_count}/{len(processed_frames)} frames")
-
         return processed_frames, ball_detected_count
 
     def save_segment_video(self, frames, output_path, fps, size):
