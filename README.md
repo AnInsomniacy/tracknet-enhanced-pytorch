@@ -73,10 +73,32 @@ python test.py --model best_model.pth --data test_data.h5 \
 
 ### Video Prediction
 
-Apply trained model to video files:
+Apply trained model to video files using the Python API:
 
-```bash
-python predict/video_predict.py --model best_model.pth --input video.mp4 --output result.mp4
+```python
+from predict.video_predict import SegmentedVideoProcessor
+
+# Initialize processor with trained model
+processor = SegmentedVideoProcessor('best_model.pth', threshold=0.5)
+
+# Process video file
+processor.process_video('input_video.mp4', 'output_video.mp4')
+```
+
+For direct model usage:
+
+```python
+from model.tracknet_enhanced import TrackNet
+import torch
+
+# Load model
+model = TrackNet()
+checkpoint = torch.load('best_model.pth')
+model.load_state_dict(checkpoint['model_state_dict'])
+model.eval()
+
+# Process frames (15-channel input: 5 frames × 3 RGB)
+output = model(input_tensor)  # Returns 3-channel heatmap
 ```
 
 ## Architecture
