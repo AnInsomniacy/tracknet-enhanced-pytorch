@@ -1,0 +1,39 @@
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# PyTorch model files
+*.pth
+*.pt
+
+# Data files
+*.h5
+*.hdf5
+
+# Output directories
+outputs/
+test_results/
+results/
+
+# Environment
+.env
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+*.log
